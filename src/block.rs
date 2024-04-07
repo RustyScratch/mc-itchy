@@ -10,7 +10,13 @@ use sb_sbity::{
     value::OpCode,
 };
 
-use crate::{build_context::TargetContext, comment::CommentBuilder, stack::StackBuilder, uid::Uid};
+use crate::{
+    build_context::TargetContext,
+    comment::CommentBuilder,
+    custom_block::{CustomBlockBuilder, CustomFuncCallBuilder},
+    stack::StackBuilder,
+    uid::Uid,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StackOrValue {
@@ -71,6 +77,19 @@ impl BlockInputBuilder {
     /// Shortcut for
     /// ```
     /// BlockInputBuilder::new()
+    ///     .shadow(ShadowInputType::Shadow)
+    ///     .input(Some(StackOrValue::Stack(value)))
+    /// ```
+    pub fn shadow_stack(stack: StackBuilder) -> Self {
+        let mut b = BlockInputBuilder::new();
+        b.set_shadow(ShadowInputType::Shadow)
+            .add_input(Some(StackOrValue::Stack(stack)));
+        b
+    }
+
+    /// Shortcut for
+    /// ```
+    /// BlockInputBuilder::new()
     ///     .shadow(ShadowInputType::ShadowObscured)
     ///     .input(Some(StackOrValue::Stack(stack)))
     ///     .input(Some(StackOrValue::Value(value)))
@@ -107,7 +126,8 @@ impl BlockInputBuilder {
                             n.y = None;
                         }
                         Block::VarList(_) => {
-                            let Block::VarList(vl) = s_builded.remove(&first_block_uid).unwrap() else {
+                            let Block::VarList(vl) = s_builded.remove(&first_block_uid).unwrap()
+                            else {
                                 unreachable!()
                             };
                             let BlockVarListReporterTop { kind, name, id, .. } = vl;
@@ -224,7 +244,7 @@ impl BlockNormalBuilder {
         self
     }
 
-    fn build(
+    pub(crate) fn build(
         self,
         my_uid: &Uid,
         comment_buff: &mut HashMap<Uid, Comment>,
@@ -268,7 +288,7 @@ impl BlockNormalBuilder {
             }
             None => None,
         };
-        
+
         BlockNormal {
             opcode,
             comment,
@@ -340,7 +360,8 @@ impl BlockFieldBuilder {
             FieldKind::SpriteList => target_context.this_sprite_lists,
             FieldKind::GlobalList => target_context.global_lists,
         }
-        .get(value_str).cloned()
+        .get(value_str)
+        .cloned()
         .unwrap_or_else(|| Uid::new("__unknown__"));
         BlockField::WithId {
             value,
@@ -466,7 +487,8 @@ impl BlockVarListBuilder {
             (ListOrVariable::List, VarListFrom::Global) => target_context.global_lists,
             (ListOrVariable::List, VarListFrom::Sprite) => target_context.this_sprite_lists,
         }
-        .get(&name).cloned()
+        .get(&name)
+        .cloned()
         .unwrap_or(Uid::new("__unknown__"));
         if let Some(comment) = comment {
             let comment_uid = Uid::generate();
@@ -474,7 +496,7 @@ impl BlockVarListBuilder {
             comment.block_id = Some(my_uid.clone().into_inner());
             comment_buff.insert(comment_uid, comment);
         }
-        
+
         BlockVarListReporterTop {
             kind,
             name,
@@ -488,6 +510,8 @@ impl BlockVarListBuilder {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockBuilder {
     Normal(BlockNormalBuilder),
+    CustomBlock(CustomBlockBuilder),
+    CustomBlockCall(CustomFuncCallBuilder),
     VarList(BlockVarListBuilder),
 }
 
@@ -504,10 +528,102 @@ impl BlockBuilder {
                 let b = n.build(my_uid, comment_buff, final_stack, target_context);
                 Block::Normal(b)
             }
+            BlockBuilder::CustomBlock(f) => {
+                let b = f.build(my_uid, comment_buff, final_stack, target_context);
+                Block::Normal(b)
+            }
             BlockBuilder::VarList(vl) => {
                 let b = vl.build(my_uid, comment_buff, target_context);
                 Block::VarList(b)
             }
+            BlockBuilder::CustomBlockCall(fc) => {
+                let b = fc.build(my_uid, comment_buff, final_stack, target_context);
+                Block::Normal(b)
+            }
+        }
+    }
+
+    fn new_inputs_height(
+        &self,
+        data: &crate::stack::BlockHeightData,
+        inputs: &HashMap<String, BlockInputBuilder>,
+    ) -> f64 {
+        let mut heights = Vec::new();
+
+        for (code, input) in inputs {
+            if !code.starts_with("SUBSTACK") {
+                for value in &input.values {
+                    if let Some(StackOrValue::Stack(stack)) = value {
+                        heights.push(
+                            stack.calc_block_height(data, true) + data.input_block_nest_height,
+                        );
+                    }
+                    if let Some(StackOrValue::Value(_)) = value {
+                        heights.push(data.input_block_height);
+                    }
+                }
+            }
+        }
+
+        heights
+            .into_iter()
+            .fold(0., |acc, h| if acc > h { acc } else { h })
+    }
+
+    pub fn calc_block_height(&self, data: &crate::stack::BlockHeightData, is_input: bool) -> f64 {
+        match self {
+            BlockBuilder::Normal(n) => {
+                if !is_input {
+                    let flag_opcodes = |opcode: &OpCode| -> bool {
+                        if opcode == "control_start_as_clone" {
+                            return true;
+                        }
+                        if opcode.starts_with("event_when") {
+                            return true;
+                        }
+                        return false;
+                    };
+
+                    if flag_opcodes(&n.opcode) {
+                        return data.event_block_height;
+                    }
+                }
+
+                let new_inputs_height = self.new_inputs_height(data, &n.inputs);
+
+                if is_input {
+                    return new_inputs_height;
+                } else {
+                    let mut base_height = if new_inputs_height > data.block_height {
+                        new_inputs_height
+                    } else {
+                        data.block_height
+                    };
+                    for (code, input) in &n.inputs {
+                        if code.starts_with("SUBSTACK") {
+                            base_height += data.block_nest_height;
+                            for value in &input.values {
+                                if let Some(StackOrValue::Stack(stack)) = value {
+                                    base_height += stack.calc_block_height(data, false);
+                                }
+                            }
+                        }
+                    }
+                    return base_height;
+                };
+            }
+            BlockBuilder::CustomBlock(_) => data.custom_block_height,
+            BlockBuilder::CustomBlockCall(c) => {
+                let new_inputs_height =
+                    self.new_inputs_height(data, &c.args.clone().into_iter().collect());
+
+                return if new_inputs_height > data.block_height {
+                    new_inputs_height
+                } else {
+                    data.block_height
+                };
+            }
+            BlockBuilder::VarList(_) => data.input_block_height,
         }
     }
 }

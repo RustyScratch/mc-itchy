@@ -1,3 +1,5 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 use std::fs::File as FsFile;
 use std::path::{Path, PathBuf};
 

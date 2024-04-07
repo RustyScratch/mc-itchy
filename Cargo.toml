@@ -1,15 +1,22 @@
 [package]
 name = "sb-itchy"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Multirious"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lazy_static = "1.4.0"
 md5 = "0.7.0"
 rand = "0.8.5"
 sb-sbity = { git = "https://github.com/rusty-scratch/sb-sbity" }
 serde_json = "1.0.91"
-zip = "0.6.3"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.zip]
+default-features = false
+version = "0.6"
+features = ["deflate"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.getrandom]
+version = "0.2"
+features = ["js"]

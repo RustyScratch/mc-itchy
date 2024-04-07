@@ -13,9 +13,13 @@
 //!  - `"_stage_"`
 //!
 
+use std::collections::HashMap;
+
 use crate::{
     block::{BlockFieldBuilder, BlockInputBuilder, BlockNormalBuilder, BlockVarListBuilder},
+    custom_block::{CustomBlockBuilder, CustomFuncCallBuilder},
     opcode::StandardOpCode,
+    prelude::{BlockBuilder, FieldKind},
     stack::StackBuilder,
 };
 use sb_sbity::block::{BlockMutation, BlockMutationEnum};
@@ -28,6 +32,7 @@ use sb_sbity::block::{BlockMutation, BlockMutationEnum};
 // Sensing
 // Sound
 // Data
+// My Blocks
 
 type Bfb = BlockFieldBuilder;
 type Bib = BlockInputBuilder;
@@ -300,7 +305,7 @@ pub fn next_costume() -> StackBuilder {
 
 /// <br/>
 /// Accepts:
-///  - Costume name
+///  - Backdrop name
 pub fn switch_backdrop_to(backdrop: Bib) -> StackBuilder {
     StackBuilder::start({
         let mut b = BlockNormalBuilder::new(StandardOpCode::looks_switchbackdropto);
@@ -621,16 +626,16 @@ pub fn set_rotation_style(style: Bfb) -> StackBuilder {
     })
 }
 
-pub fn direction() -> StackBuilder {
-    StackBuilder::start(BlockNormalBuilder::new(StandardOpCode::motion_direction))
+pub fn x_position() -> StackBuilder {
+    StackBuilder::start(BlockNormalBuilder::new(StandardOpCode::motion_xposition))
 }
 
 pub fn y_position() -> StackBuilder {
     StackBuilder::start(BlockNormalBuilder::new(StandardOpCode::motion_yposition))
 }
 
-pub fn x_position() -> StackBuilder {
-    StackBuilder::start(BlockNormalBuilder::new(StandardOpCode::motion_xposition))
+pub fn direction() -> StackBuilder {
+    StackBuilder::start(BlockNormalBuilder::new(StandardOpCode::motion_direction))
 }
 
 // Operators ===================================================================
@@ -716,7 +721,7 @@ pub fn or(a: Bib, b: Bib) -> StackBuilder {
 
 pub fn not(val: Bib) -> StackBuilder {
     StackBuilder::start({
-        let mut b = BlockNormalBuilder::new(StandardOpCode::operator_or);
+        let mut b = BlockNormalBuilder::new(StandardOpCode::operator_not);
         b.add_input("OPERAND", val);
         b
     })
@@ -919,6 +924,10 @@ pub fn mouse_down() -> StackBuilder {
 
 pub fn mouse_x() -> StackBuilder {
     StackBuilder::start(BlockNormalBuilder::new(StandardOpCode::sensing_mousex))
+}
+
+pub fn mouse_y() -> StackBuilder {
+    StackBuilder::start(BlockNormalBuilder::new(StandardOpCode::sensing_mousey))
 }
 
 /// <br/>
@@ -1154,10 +1163,10 @@ pub fn hide_var(var: Bfb) -> StackBuilder {
     })
 }
 
-pub fn add_to_list(item: Bib) -> StackBuilder {
+pub fn add_to_list(list: Bfb, item: Bib) -> StackBuilder {
     StackBuilder::start({
         let mut b = BlockNormalBuilder::new(StandardOpCode::data_addtolist);
-        b.add_input("ITEM", item);
+        b.add_input("ITEM", item).add_field("LIST", list);
         b
     })
 }
@@ -1208,7 +1217,7 @@ pub fn item_in_list(list: Bfb, idx: Bib) -> StackBuilder {
 
 pub fn count_of_item_in_list(list: Bfb, item: Bib) -> StackBuilder {
     StackBuilder::start({
-        let mut b = BlockNormalBuilder::new(StandardOpCode::data_itemoflist);
+        let mut b = BlockNormalBuilder::new(StandardOpCode::data_itemnumoflist);
         b.add_input("ITEM", item).add_field("LIST", list);
         b
     })
@@ -1244,4 +1253,75 @@ pub fn hide_list(list: Bfb) -> StackBuilder {
         b.add_field("LIST", list);
         b
     })
+}
+
+// My Blocks ========================================================================
+pub fn define_custom_block<S: Into<String>>(name: S) -> StackBuilder {
+    let custom_block = CustomBlockBuilder::new(name);
+
+    StackBuilder {
+        stack: vec![BlockBuilder::CustomBlock(custom_block)],
+    }
+}
+
+pub fn call_custom_block<S: Into<String>, T: Into<String>>(
+    name: S,
+    args: HashMap<T, Bib>,
+) -> StackBuilder {
+    let mut custom_func_call = CustomFuncCallBuilder::new();
+    custom_func_call.set_name(name.into());
+    for (k, v) in args {
+        custom_func_call.add_input(k.into(), v);
+    }
+
+    StackBuilder {
+        stack: vec![BlockBuilder::CustomBlockCall(custom_func_call)],
+    }
+}
+
+pub fn custom_block_var_boolean<S: Into<String>>(name: S) -> StackBuilder {
+    StackBuilder::start({
+        let mut b = BlockNormalBuilder::new(StandardOpCode::argument_reporter_boolean);
+        b.add_field(
+            "VALUE",
+            BlockFieldBuilder::new_with_kind(name.into(), FieldKind::NoRefMaybe),
+        );
+        b
+    })
+}
+
+pub fn custom_block_var_string_number<S: Into<String>>(name: S) -> StackBuilder {
+    StackBuilder::start({
+        let mut b = BlockNormalBuilder::new(StandardOpCode::argument_reporter_string_number);
+        b.add_field(
+            "VALUE",
+            BlockFieldBuilder::new_with_kind(name.into(), FieldKind::NoRefMaybe),
+        );
+        b
+    })
+}
+
+// Translate ========================================================================
+pub fn translate_to<S: Into<String>>(string: Bib, lang: S) -> StackBuilder {
+    StackBuilder::start({
+        let mut b = BlockNormalBuilder::new("translate_getTranslate");
+        b.add_input("WORDS", string);
+        b.add_input(
+            "LANGUAGE",
+            BlockInputBuilder::shadow_stack(StackBuilder::start({
+                let mut b = BlockNormalBuilder::new("translate_menu_languages");
+                b.add_field(
+                    "languages",
+                    BlockFieldBuilder::new_with_kind(lang.into(), FieldKind::NoRefMaybe),
+                );
+                b.set_shadow(true);
+                b
+            })),
+        );
+        b
+    })
+}
+
+pub fn get_viewer_language() -> StackBuilder {
+    StackBuilder::start(BlockNormalBuilder::new("translate_getViewerLanguage"))
 }

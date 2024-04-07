@@ -65,10 +65,7 @@ impl Resource {
 
     /// PathBuf is always valid utf8
     pub fn generate_file_name(&mut self) -> PathBuf {
-        let mut path = PathBuf::from(self.md5_hash().unwrap_or({
-            self.compute_md5_hash();
-            self.md5_hash().unwrap()
-        }));
+        let mut path = PathBuf::from(self.get_or_compute_md5_hash());
         path.set_extension(&self.extension);
         path
     }
@@ -85,6 +82,13 @@ impl Resource {
                 .map(|byte| format!("{byte:02x}"))
                 .collect(),
         )
+    }
+
+    pub fn get_or_compute_md5_hash(&mut self) -> &String {
+        if self.md5_hash.is_none() {
+            self.compute_md5_hash();
+        }
+        self.md5_hash.as_ref().unwrap()
     }
 
     pub fn extension(&self) -> &str {

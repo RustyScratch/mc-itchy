@@ -78,7 +78,7 @@ impl CommentBuilder {
             minimized,
             content,
         } = self;
-        
+
         Comment {
             block_id: block_uid.map(|u| u.into_inner()),
             x: x.map(|n| n.into()),

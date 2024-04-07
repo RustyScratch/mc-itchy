@@ -51,6 +51,12 @@ impl StackBuilder {
             BlockBuilder::VarList(vl) => {
                 vl.set_pos(x, y);
             }
+            BlockBuilder::CustomBlock(vl) => {
+                vl.set_pos(x, y);
+            }
+            BlockBuilder::CustomBlockCall(vl) => {
+                vl.set_pos(Some(x), Some(y));
+            }
         }
         self
     }
@@ -73,14 +79,18 @@ impl StackBuilder {
         match first_block {
             Block::Normal(mut first_block) => {
                 first_block.top_level = true;
-                first_block.x = Some(0.into());
-                first_block.y = Some(0.into());
+                first_block.x = Some(first_block.x.unwrap_or_default());
+                first_block.y = Some(first_block.y.unwrap_or_default());
                 let mut previous_block = (first_block, first_block_uid.clone());
                 for block_builder2 in self_stack_iter {
                     let (mut block1, block1_uid) = previous_block;
                     let block2_uid = Uid::generate();
-                    let Block::Normal(mut block2) =
-                        block_builder2.build(&block2_uid, comment_buff, &mut stack_b, target_context) else {
+                    let Block::Normal(mut block2) = block_builder2.build(
+                        &block2_uid,
+                        comment_buff,
+                        &mut stack_b,
+                        target_context,
+                    ) else {
                         unreachable!("BlockVarList shouldn't exist here")
                     };
 
@@ -98,6 +108,36 @@ impl StackBuilder {
                 stack_b.insert(first_block_uid.clone(), Block::VarList(vl));
                 stack_b
             }
+        }
+    }
+
+    pub fn calc_block_height(&self, data: &BlockHeightData, is_input: bool) -> f64 {
+        self.stack.iter().fold(0.0, |acc, block| {
+            acc + block.calc_block_height(data, is_input)
+        }) + if is_input { 0. } else { data.block_bump }
+    }
+}
+
+pub struct BlockHeightData {
+    pub input_block_height: f64,
+    pub input_block_nest_height: f64,
+    pub block_height: f64,
+    pub block_nest_height: f64,
+    pub block_bump: f64,
+    pub custom_block_height: f64,
+    pub event_block_height: f64,
+}
+
+impl Default for BlockHeightData {
+    fn default() -> Self {
+        BlockHeightData {
+            input_block_height: 80.,
+            input_block_nest_height: 16.,
+            block_height: 96.,
+            block_nest_height: 64.,
+            block_bump: 16.,
+            custom_block_height: 184.,
+            event_block_height: 146.,
         }
     }
 }
